@@ -1,0 +1,18 @@
+[package]
+name = "cdumay_sodium"
+version = "0.1.0"
+edition = "2024"
+
+authors = ["Cédric Dumay <cedric.dumay@gmail.com>"]
+description = "A Rust Library to use sodium"
+documentation = "https://docs.rs/cdumay_sodium"
+homepage = "https://github.com/cdumay/cdumay_sodium"
+license-file = "LICENSE"
+readme = "README.md"
+repository = "https://github.com/cdumay/cdumay_sodium"
+
+[dependencies]
+sodiumoxide = "0.2"
+cdumay_core = "0.1"
+cdumay_error = "2.0"
+serde-value = "0.7"
