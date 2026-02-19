@@ -36,5 +36,5 @@ pub mod sealedbox;
 /// and the provided context for easier debugging.
 /// 
 fn vec_to_string(data: Vec<u8>, context: std::collections::BTreeMap<String, serde_value::Value>) -> cdumay_core::Result<String> {
-    String::from_utf8(data).map_err(|err| InvalidContent::new().with_message(err.to_string()).with_details(context.clone()).into())
+    String::from_utf8(data).map_err(|err| InvalidContent::new().with_message(err.to_string()).with_details(context).into())
 }

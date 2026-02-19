@@ -17,8 +17,8 @@
 //! This module provides basic secretbox manipulations.
 
 use crate::{FailedToOpenSecretBox, InvalidBoxKeyLength, InvalidBoxNonceLength, vec_to_string};
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
+use cdumay_base64::base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use cdumay_base64::base64::Engine;
 use cdumay_core::ErrorConverter;
 use sodiumoxide::crypto::secretbox;
 use std::collections::BTreeMap;
@@ -44,12 +44,14 @@ use std::collections::BTreeMap;
 ///
 /// This function will return an error if `v.len() != secretbox::KEYBYTES`.
 fn into_secretbox_key(v: Vec<u8>, context: BTreeMap<String, serde_value::Value>) -> cdumay_core::Result<secretbox::Key> {
-    let boxed_slice = v.into_boxed_slice();
-    let boxed_array: Box<[u8; secretbox::KEYBYTES]> = boxed_slice.try_into().map_err(|_| {
-        InvalidBoxKeyLength::new()
+    if v.len() != secretbox::KEYBYTES {
+        return Err(InvalidBoxKeyLength::new()
             .with_message(format!("Invalid box_key length required: {}", secretbox::KEYBYTES))
             .with_details(context)
-    })?;
+            .into());
+    }
+    let boxed_slice = v.into_boxed_slice();
+    let boxed_array: Box<[u8; secretbox::KEYBYTES]> = boxed_slice.try_into().unwrap_or_else(|_| unreachable!());
     Ok(secretbox::Key(*boxed_array))
 }
 
@@ -74,12 +76,14 @@ fn into_secretbox_key(v: Vec<u8>, context: BTreeMap<String, serde_value::Value>)
 ///
 /// This function returns an error if `v.len() != secretbox::NONCEBYTES`.
 fn into_secretbox_nonce(v: Vec<u8>, context: BTreeMap<String, serde_value::Value>) -> cdumay_core::Result<secretbox::Nonce> {
-    let boxed_slice = v.into_boxed_slice();
-    let boxed_array: Box<[u8; secretbox::NONCEBYTES]> = boxed_slice.try_into().map_err(|_| {
-        InvalidBoxNonceLength::new()
+    if v.len() != secretbox::NONCEBYTES {
+        return Err(InvalidBoxNonceLength::new()
             .with_message(format!("Invalid box_nonce length required: {}", secretbox::NONCEBYTES))
             .with_details(context)
-    })?;
+            .into());
+    }
+    let boxed_slice = v.into_boxed_slice();
+    let boxed_array: Box<[u8; secretbox::NONCEBYTES]> = boxed_slice.try_into().unwrap_or_else(|_| unreachable!());
     Ok(secretbox::Nonce(*boxed_array))
 }
 
@@ -193,6 +197,6 @@ pub fn crypt(data: &str, sb_key_b64: &str, context: BTreeMap<String, serde_value
     let ciphertext = secretbox::seal(data.as_bytes(), &nonce, &into_secretbox_key(sb_key_b64_decoded, context.clone())?);
     Ok((
         BASE64_STANDARD.encode(nonce.as_ref()),
-        BASE64_STANDARD.encode(ciphertext).trim().to_string(),
+        BASE64_STANDARD.encode(ciphertext),
     ))
 }

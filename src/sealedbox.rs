@@ -6,8 +6,8 @@
 //!
 //! Without knowing the secret key used for a given message, the sender cannot decrypt the message later. Furthermore, without additional data, a message cannot be correlated with the identity of its sender.
 use crate::{FailedToOpenSealedBox, vec_to_string};
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
+use cdumay_base64::base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use cdumay_base64::base64::Engine;
 use cdumay_core::ErrorConverter;
 use std::collections::BTreeMap;
 
@@ -49,14 +49,14 @@ use std::collections::BTreeMap;
 /// ```
 /// use std::collections::BTreeMap;
 /// use serde_value::Value;
-/// use cdumay_sodium::sealedbox::decrypt;
+/// use cdumay_sodium::sealedbox::{crypt, decrypt};
 ///
-/// let data = "xSZKxMXGUVW1ONlS+R7lF/ZhjttkQzsbVei8gfif2S7ntsi+g6waekphBq/1lZ67eDOw8/3lwm6c8AbvvIcOHAD3";
-/// let private_key = "odxkRevQOBS/wvrZr9nr6uAsP2is2+frM/6mhCNqsz4=";
-/// let public_key = "Y+rH6koXiQbMri56PrACMmTWTQ8vjlOgJr/3+IUF1KU=";
+/// let public_key = "odxkRevQOBS/wvrZr9nr6uAsP2is2+frM/6mhCNqsz4=";
+/// let private_key = "Y+rH6koXiQbMri56PrACMmTWTQ8vjlOgJr/3+IUF1KU=";
 /// let context = BTreeMap::<String, Value>::new();
-/// let plaintext = decrypt(data, private_key, public_key, context).unwrap();
-/// println!("Decrypted: {}", plaintext);
+/// let ciphertext = crypt("secret message", public_key, context.clone()).unwrap();
+/// let plaintext = decrypt(&ciphertext, private_key, public_key, context).unwrap();
+/// assert_eq!(plaintext, "secret message");
 /// ```
 pub fn decrypt(
     data: &str,
@@ -68,25 +68,32 @@ pub fn decrypt(
         return Ok(String::new());
     }
     let data_decoded = cdumay_base64::convert_decode_result!(BASE64_STANDARD.decode(data), context.clone())?;
+    if data_decoded.len() < sodium::crypto_box_SEALBYTES as usize {
+        return Err(FailedToOpenSealedBox::new()
+            .with_message("Ciphertext too short for sealed box".to_string())
+            .with_details(context)
+            .into());
+    }
     let priv_key_decoded = cdumay_base64::convert_decode_result!(BASE64_STANDARD.decode(private_key_b64), context.clone())?;
     let pub_key_decoded = cdumay_base64::convert_decode_result!(BASE64_STANDARD.decode(public_key_b64), context.clone())?;
 
+    let seal_bytes = sodium::crypto_box_SEALBYTES as usize;
     unsafe {
         sodium::sodium_init();
-        let mut decrypted = vec![0u8; data_decoded.len() - sodium::crypto_box_SEALBYTES as usize];
+        let mut decrypted = vec![0u8; data_decoded.len() - seal_bytes];
         let ret = sodium::crypto_box_seal_open(
             decrypted.as_mut_ptr(),
             data_decoded.as_ptr(),
             data_decoded.len() as u64,
-            priv_key_decoded.as_ptr(),
             pub_key_decoded.as_ptr(),
+            priv_key_decoded.as_ptr(),
         );
         match ret != 0 {
             true => Err(FailedToOpenSealedBox::new()
                 .with_message("Decryption failed".to_string())
-                .with_details(context.clone())
+                .with_details(context)
                 .into()),
-            false => vec_to_string(decrypted, context.clone()),
+            false => vec_to_string(decrypted, context),
         }
     }
 }
@@ -101,7 +108,7 @@ pub fn decrypt(
 /// # Arguments
 ///
 /// * `data` - The plaintext data to encrypt as a UTF-8 string.
-/// * `private_key_b64` - The base64-encoded public key to use for encryption.
+/// * `public_key_b64` - The base64-encoded public key of the recipient to use for encryption.
 /// * `context` - A `BTreeMap` containing additional context information for error reporting.
 ///
 /// # Returns
@@ -129,25 +136,31 @@ pub fn decrypt(
 /// use cdumay_sodium::sealedbox::crypt;
 ///
 /// let data = "my secret message";
-/// let private_key = "odxkRevQOBS/wvrZr9nr6uAsP2is2+frM/6mhCNqsz4=";
+/// let public_key = "odxkRevQOBS/wvrZr9nr6uAsP2is2+frM/6mhCNqsz4=";
 /// let context = BTreeMap::<String, Value>::new();
-/// let ciphertext = crypt(data, private_key, context).unwrap();
+/// let ciphertext = crypt(data, public_key, context).unwrap();
 /// println!("Encrypted (base64): {}", ciphertext);
 /// ```
 
-pub fn crypt(data: &str, private_key_b64: &str, context: BTreeMap<String, serde_value::Value>) -> cdumay_core::Result<String> {
-    let priv_key_decoded = cdumay_base64::convert_decode_result!(BASE64_STANDARD.decode(private_key_b64), context.clone())?;
+pub fn crypt(data: &str, public_key_b64: &str, context: BTreeMap<String, serde_value::Value>) -> cdumay_core::Result<String> {
+    let pub_key_decoded = cdumay_base64::convert_decode_result!(BASE64_STANDARD.decode(public_key_b64), context.clone())?;
+    if pub_key_decoded.len() != sodium::crypto_box_PUBLICKEYBYTES as usize {
+        return Err(FailedToOpenSealedBox::new()
+            .with_message("Invalid public key length for sealed box".to_string())
+            .with_details(context)
+            .into());
+    }
 
     unsafe {
         sodium::sodium_init();
         let mut ciphertext = vec![0u8; data.as_bytes().len() + sodium::crypto_box_SEALBYTES as usize];
-        let ret = sodium::crypto_box_seal(ciphertext.as_mut_ptr(), data.as_ptr(), data.len() as u64, priv_key_decoded.as_ptr());
+        let ret = sodium::crypto_box_seal(ciphertext.as_mut_ptr(), data.as_ptr(), data.len() as u64, pub_key_decoded.as_ptr());
         match ret != 0 {
             true => Err(FailedToOpenSealedBox::new()
                 .with_message("Encryption failed".to_string())
-                .with_details(context.clone())
+                .with_details(context)
                 .into()),
-            false => Ok(BASE64_STANDARD.encode(ciphertext).trim().to_string()),
+            false => Ok(BASE64_STANDARD.encode(ciphertext)),
         }
     }
 }
